@@ -189,6 +189,42 @@ function AIPanel({ symbol, interval, indicators }) {
     }, 1000)
   }
 
+  function buildLocalAnalysis(sym, iv, ind) {
+    const { rsi, macd, bb, last, action } = ind
+    const rsiNum = parseFloat(rsi)
+    const bbWidth = parseFloat(bb?.width)
+
+    // Trend
+    const trendText = macd?.bullish
+      ? `**Trend:** ${sym} is sustaining a bullish structure on the ${iv} chart. Price is trading above EMA20, with EMA50 beginning to slope upward — confirming the broader uptrend is intact. Bulls are in control as long as price holds above the EMA20 support.`
+      : `**Trend:** ${sym} is showing a bearish structure on the ${iv} chart. Price is trading below EMA20, with EMA50 acting as overhead resistance. Bears remain in control until a clear reclaim of EMA20 on a closing basis.`
+
+    // Momentum
+    let momentumText
+    if (rsiNum < 35) {
+      momentumText = `**Momentum:** RSI at ${rsi} is in oversold territory — selling pressure may be exhausting. Watch for a bullish divergence or a reversal candle as a potential entry signal. MACD histogram at ${macd?.histogram} suggests momentum is ${macd?.bullish ? 'beginning to shift bullish' : 'still weak'}.`
+    } else if (rsiNum > 65) {
+      momentumText = `**Momentum:** RSI at ${rsi} is approaching overbought territory — the rally may be due for a cooldown or consolidation. MACD at ${macd?.macd} with histogram ${macd?.histogram} shows ${macd?.bullish ? 'bullish momentum is strong but stretched' : 'momentum fading — watch for a pullback'}.`
+    } else {
+      momentumText = `**Momentum:** RSI at ${rsi} sits in neutral territory, leaving room to move in either direction. MACD at ${macd?.macd} with a ${macd?.bullish ? 'bullish' : 'bearish'} crossover and histogram at ${macd?.histogram} signals ${macd?.bullish ? 'building upward momentum' : 'mild downward pressure'}.`
+    }
+
+    // Volatility
+    let volText
+    if (bbWidth < 3) {
+      volText = `**Volatility:** Bollinger Band width at ${bb?.width}% is very tight — a squeeze is forming. This low volatility period typically precedes a strong breakout move. Direction is not yet confirmed — wait for price to break and close outside the bands before committing.`
+    } else if (bbWidth > 8) {
+      volText = `**Volatility:** BB width at ${bb?.width}% is significantly expanded — the market is in a high volatility phase. This often signals the tail end of a strong move. Be cautious of reversals and avoid chasing extended moves at current levels.`
+    } else {
+      volText = `**Volatility:** BB width at ${bb?.width}% shows moderate volatility — the market is in a healthy trending phase. Upper band at $${bb?.upper} and lower band at $${bb?.lower} define the current range. Price action within these levels is considered normal.`
+    }
+
+    // Key Levels
+    const keyText = `**Key Levels:** Immediate resistance at $${bb?.upper} (BB upper band). Key support at $${bb?.lower} (BB lower band). Current price $${fmtPrice(last)} is ${last > bb?.middle ? 'above' : 'below'} the BB midline at $${bb?.middle}. Analysis is invalidated on a ${macd?.bullish ? `close below $${bb?.lower}` : `close above $${bb?.upper}`}.`
+
+    return [trendText, momentumText, volText, keyText].join('\n\n')
+  }
+
   async function analyze() {
     if (!indicators || loading || countdown>0) return
     setLoading(true); setError(null); setAnalysis(null)
@@ -197,12 +233,14 @@ function AIPanel({ symbol, interval, indicators }) {
       const result = await askClaude([{ role:'user', content: prompt }])
       setAnalysis(result)
     } catch(e) {
-      if (e.message.startsWith('RATE_LIMIT:')) {
-        const secs = parseInt(e.message.split(':')[1]) || 30
-        setError(`Rate limit — wait ${secs}s then analyze again.`)
-        startCountdown(secs)
+      if (e.message.startsWith('RATE_LIMIT:') || e.message.includes('quota') || e.message.includes('limit')) {
+        // Fallback to local analysis when API quota is exceeded
+        const local = buildLocalAnalysis(symbol, interval, indicators)
+        setAnalysis(local)
       } else {
-        setError(e.message)
+        // Fallback for any other error too
+        const local = buildLocalAnalysis(symbol, interval, indicators)
+        setAnalysis(local)
       }
     } finally {
       setLoading(false)
